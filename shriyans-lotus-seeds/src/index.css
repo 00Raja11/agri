@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@theme {
+  --color-lotus-pink: #FDE6EF;
+  --color-lotus-maroon: #800000;
+  --color-lotus-gold: #FFD700;
+  
+  --font-family-serif: Georgia, serif;
+  --font-family-sans: Inter, system-ui, sans-serif;
+}
+
+body {
+  background-color: #fff7fb;
+  font-family: 'Inter', sans-serif;
+}
+
+.btn-primary {
+  padding: 0.75rem 1.5rem;
+  background-color: #800000;
+  color: white;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: #990000;
+}
+
+.btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border: 2px solid #800000;
+  color: #800000;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background-color: #800000;
+  color: white;
+}
+
+.card-hover {
+  transition: transform 0.3s;
+}
+
+.card-hover:hover {
+  transform: scale(1.05);
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
