@@ -1,0 +1,8 @@
+# Backend specific
+node_modules/
+.env
+.env.local
+*.log
+dist/
+build/
+coverage/
