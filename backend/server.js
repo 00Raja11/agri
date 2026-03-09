@@ -2,29 +2,69 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import compression from 'compression';
 
-// Import models
-import User from './models/User.js';
-import Product from './models/Product.js';
-import Order from './models/Order.js';
-import Recipe from './models/Recipe.js';
+// Import routes
+import authRoutes from './routes/auth.js';
+import productRoutes from './routes/products.js';
+import orderRoutes from './routes/orders.js';
+import recipeRoutes from './routes/recipes.js';
+import contactRoutes from './routes/contact.js';
 
 dotenv.config();
 
 const app = express();
 
-// Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
+// ===== Security Middleware =====
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
-app.use(express.json());
+
+// ===== Rate Limiting =====
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api', limiter);
+
+// ===== CORS Configuration =====
+app.use(cors({
+  origin: process.env.FRONTEND_URL?.split(',') || ['http://localhost:3000'],
+  credentials: true,
+  optionsSuccessStatus: 200
+}));
+
+// ===== Middleware =====
+app.use(compression()); // Compress responses
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ===== Request Logger (Development) =====
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
 
 // ===== MongoDB Connection =====
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+    
+    mongoose.connection.on('error', (err) => {
+      console.error('❌ MongoDB connection error:', err);
+    });
+    
+    mongoose.connection.on('disconnected', () => {
+      console.log('⚠️ MongoDB disconnected');
+    });
+    
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error);
     process.exit(1);
@@ -36,282 +76,83 @@ const connectDB = async () => {
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({
+    success: true,
     status: 'OK',
     message: 'Shriyans Lotus Seeds API is running',
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    environment: process.env.NODE_ENV,
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    version: process.env.npm_package_version || '1.0.0'
   });
 });
 
-// ===== Auth Routes =====
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
+// API Routes - MOUNT ALL ROUTES HERE
+console.log('🔥 Mounting auth routes...');
+app.use('/api/auth', authRoutes);
+console.log('✅ Auth routes mounted');
 
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already exists'
-      });
-    }
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/recipes', recipeRoutes);
+app.use('/api/contact', contactRoutes);
 
-    // Create new user
-    const user = await User.create({
-      name,
-      email,
-      password
-    });
-
-    res.status(201).json({
-      success: true,
-      message: 'User registered successfully',
-      user
-    });
-
-  } catch (error) {
-    console.error('Registration error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-app.post('/api/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Find user with password field
-    const user = await User.findOne({ email }).select('+password');
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      user
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// ===== Product Routes =====
-app.get('/api/products', async (req, res) => {
-  try {
-    const { search, flavour, page = 1, limit = 12 } = req.query;
-    
-    let query = { isActive: true };
-    
-    // Search
-    if (search) {
-      query.$text = { $search: search };
-    }
-    
-    // Filter by flavour
-    if (flavour && flavour !== 'all') {
-      query.flavour = flavour;
-    }
-    
-    const products = await Product.find(query)
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit))
-      .sort('-createdAt');
-    
-    const total = await Product.countDocuments(query);
-    
-    res.json({
-      success: true,
-      products,
-      pagination: {
-        current: parseInt(page),
-        pages: Math.ceil(total / limit),
-        total
-      }
-    });
-
-  } catch (error) {
-    console.error('Products fetch error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-app.get('/api/products/:id', async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    
-    if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      product
-    });
-
-  } catch (error) {
-    console.error('Product fetch error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// ===== Order Routes =====
-app.post('/api/orders', async (req, res) => {
-  try {
-    const { items, shippingAddress, paymentMethod, user } = req.body;
-    
-    // Calculate totals
-    let subtotal = 0;
-    const orderItems = [];
-    
-    for (const item of items) {
-      const product = await Product.findById(item.productId);
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: `Product not found: ${item.productId}`
+// ===== Debug: List all registered routes =====
+app.get('/api/debug/routes', (req, res) => {
+  const routes = [];
+  
+  // Function to extract routes from app._router.stack
+  const extractRoutes = (stack, basePath = '') => {
+    stack.forEach(layer => {
+      if (layer.route) {
+        // Route layer
+        const methods = Object.keys(layer.route.methods).join(', ').toUpperCase();
+        routes.push({
+          method: methods,
+          path: basePath + layer.route.path,
+          handler: layer.route.stack[0]?.name || 'anonymous'
         });
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        // Router layer
+        const routerPath = basePath + (layer.regexp.source
+          .replace('\\/?(?=\\/|$)', '')
+          .replace(/\\\//g, '/')
+          .replace(/\^/g, '')
+          .replace(/\?/g, '')
+          .replace(/\(\?:\(\[\^\\\/\]\+\?\)\)/g, ':param'));
+        extractRoutes(layer.handle.stack, routerPath);
       }
-      
-      const total = product.price * item.quantity;
-      subtotal += total;
-      
-      orderItems.push({
-        product: product._id,
-        quantity: item.quantity,
-        price: product.price,
-        total
-      });
-    }
-    
-    const shipping = 40; // Fixed shipping
-    const total = subtotal + shipping;
-    
-    // Create order
-    const order = await Order.create({
-      user: user?.id,
-      items: orderItems,
-      subtotal,
-      shipping,
-      total,
-      shippingAddress,
-      paymentMethod,
-      orderStatus: 'pending',
-      paymentStatus: 'pending'
     });
-    
-    // Populate product details
-    await order.populate('items.product');
-    
-    res.status(201).json({
-      success: true,
-      message: 'Order created successfully',
-      order
-    });
-
-  } catch (error) {
-    console.error('Order creation error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-app.get('/api/orders/my-orders', async (req, res) => {
-  try {
-    const orders = await Order.find({ user: req.query.userId })
-      .populate('items.product')
-      .sort('-createdAt');
-    
-    res.json({
-      success: true,
-      orders
-    });
-
-  } catch (error) {
-    console.error('Orders fetch error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// ===== Recipe Routes =====
-app.get('/api/recipes', async (req, res) => {
-  try {
-    const recipes = await Recipe.find({ isApproved: true })
-      .populate('products.product')
-      .sort('-createdAt');
-    
-    res.json({
-      success: true,
-      recipes
-    });
-
-  } catch (error) {
-    console.error('Recipes fetch error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
-
-// ===== Contact Route =====
-app.post('/api/contact', (req, res) => {
-  console.log('Contact form:', req.body);
+  };
+  
+  extractRoutes(app._router.stack);
+  
   res.json({
     success: true,
-    message: 'Thank you for contacting us!'
+    totalRoutes: routes.length,
+    routes: routes.sort((a, b) => a.path.localeCompare(b.path))
   });
 });
 
-// 404 handler
+// ===== 404 Handler for undefined routes =====
 app.use('/api/*', (req, res) => {
+  console.log(`❌ 404 - API endpoint not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
     message: `API endpoint not found: ${req.method} ${req.originalUrl}`
   });
 });
 
-// Error handler
+// ===== Global Error Handler =====
 app.use((error, req, res, next) => {
-  console.error('Server error:', error);
-  res.status(500).json({
+  console.error('🚨 Server Error:', error);
+  
+  const status = error.status || 500;
+  const message = error.message || 'Internal server error';
+  
+  res.status(status).json({
     success: false,
-    message: error.message || 'Internal server error'
+    message: message,
+    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
   });
 });
 
@@ -320,13 +161,45 @@ const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB then start server
 connectDB().then(() => {
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
+    console.log('\n' + '='.repeat(60));
     console.log('🚀 Shriyans Lotus Seeds Backend Server Started');
-    console.log('==============================================');
+    console.log('='.repeat(60));
     console.log(`📍 Port: ${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`💾 MongoDB: Connected`);
     console.log(`🔗 Health Check: http://localhost:${PORT}/api/health`);
-    console.log('✅ Server ready!');
+    console.log('='.repeat(60) + '\n');
+    
+    console.log('📋 Available Endpoints:');
+    console.log('   GET    /api/health');
+    console.log('   GET    /api/auth/test');
+    console.log('   GET    /api/auth/debug-users');
+    console.log('   POST   /api/auth/register');
+    console.log('   POST   /api/auth/login');
+    console.log('   POST   /api/auth/forgot-password');
+    console.log('   POST   /api/auth/reset-password/:token');
+    console.log('   GET    /api/auth/verify-reset-token/:token');
+    console.log('   GET    /api/auth/me');
+    console.log('   GET    /api/products');
+    console.log('   GET    /api/products/:id');
+    console.log('   POST   /api/orders');
+    console.log('   GET    /api/orders/my-orders');
+    console.log('   GET    /api/recipes');
+    console.log('   POST   /api/contact');
+    console.log('   GET    /api/debug/routes');
+    console.log('='.repeat(60) + '\n');
+  });
+
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('⚠️ SIGTERM received. Closing server...');
+    server.close(() => {
+      console.log('✅ Server closed');
+      mongoose.connection.close(false, () => {
+        console.log('✅ MongoDB connection closed');
+        process.exit(0);
+      });
+    });
   });
 });
