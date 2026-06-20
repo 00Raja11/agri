@@ -12,7 +12,7 @@ markdown
 
 **A modern, full-stack e-commerce platform for premium lotus seeds and healthy snacking**
 
-[Live Demo](https://your-demo-url.vercel.app) • [Report Bug](https://github.com/yourusername/agri/issues) • [Request Feature](https://github.com/yourusername/agri/issues)
+[Live Demo](https://agri-1.vercel.app/) • [Report Bug](https://github.com/yourusername/agri/issues) • [Request Feature](https://github.com/yourusername/agri/issues)
 
 </div>
 
